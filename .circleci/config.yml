@@ -1,0 +1,50 @@
+version: 2.1
+
+jobs:
+  build-linux-aarch64:
+    machine:
+      image: ubuntu-2004:202101-01
+    resource_class: arm.medium
+    working_directory: ~/treelite
+    steps:
+      - checkout    
+      - run:
+          name: ️️Building Treelite...
+          command: |
+            tests/ci_build/ci_build.sh cpu.aarch64 tests/ci_build/build_via_cmake.sh      
+      - run:
+          name: ️️Packaging Python wheel for Treelite...
+          command: |
+            TAG=manylinux2014_aarch64
+            tests/ci_build/ci_build.sh cpu.aarch64 bash -c "cd python/ && python setup.py bdist_wheel --universal"
+            tests/ci_build/ci_build.sh auditwheel_aarch64 auditwheel repair --only-plat --plat ${TAG} python/dist/*.whl
+            rm -v python/dist/*.whl
+            mv -v wheelhouse/*.whl python/dist/
+            tests/ci_build/ci_build.sh cpu.aarch64 python tests/ci_build/rename_whl.py python/dist/*.whl $CIRCLE_SHA1 ${TAG}
+      - store_artifacts:
+          path: python/dist/            
+      - run:
+          name: ️️Packaging Python wheel for Treelite runtime...
+          command: |
+            TAG=manylinux2014_aarch64
+            tests/ci_build/ci_build.sh cpu.aarch64 bash -c "cd runtime/python/ && python setup.py bdist_wheel --universal"
+            tests/ci_build/ci_build.sh auditwheel_aarch64 auditwheel repair --only-plat --plat ${TAG} runtime/python/dist/*.whl
+            rm -v runtime/python/dist/*.whl
+            mv -v wheelhouse/*.whl runtime/python/dist/
+            tests/ci_build/ci_build.sh cpu.aarch64 python tests/ci_build/rename_whl.py runtime/python/dist/*.whl $CIRCLE_SHA1 ${TAG}
+      - store_artifacts:
+          path: runtime/python/dist/
+      - run:
+          name: Deploy...
+          command: |
+            python3.9 -m venv env
+            source env/bin/activate
+            python3.9 -m pip install --upgrade pip twine
+            twine upload -u "$PYPI_USERNAME" -p "$PYPI_PASSWORD" --skip-existing ./python/dist/*
+            twine upload -u "$PYPI_USERNAME" -p "$PYPI_PASSWORD" --skip-existing ./runtime/python/dist/*     
+          
+workflows:
+  version: 2.1
+  buid_and_deploy:
+    jobs:
+      - build-linux-aarch64
